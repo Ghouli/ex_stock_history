@@ -122,6 +122,14 @@ defmodule ExStockHistoryWeb.StockHistory do
     respond(conn, id, start, stop)
   end
 
+  def fetch_stock_history(conn, %{"id" => id, "from" => from, "to" => to}) do
+    start = Timex.parse!("#{from}-01-01T00:00:00.000Z", "{ISO:Extended:Z}")
+      |> Timex.to_unix()
+    stop = Timex.parse!("#{to}-12-31T23:59:00.000Z", "{ISO:Extended:Z}")
+      |> Timex.to_unix()
+    respond(conn, id, start, stop)
+  end
+
   def fetch_stock_history(conn, %{"id" => id, "from" => from}) do
     start = Timex.parse!("#{from}-01-01T00:00:00.000Z", "{ISO:Extended:Z}")
       |> Timex.to_unix()
@@ -152,6 +160,15 @@ defmodule ExStockHistoryWeb.StockHistory do
       |> Timex.to_unix()
     stop = Timex.parse!("#{year}-01-01T00:00:00.000Z", "{ISO:Extended:Z}")
       |> Timex.shift(years: 1)
+      |> Timex.to_unix()
+    respond(conn, id, start, stop)
+  end
+
+  def fetch_stock_history(conn, %{"query" => query, "from" => from, "to" => to}) do
+    id = get_id(query)
+    start = Timex.parse!("#{from}-01-01T00:00:00.000Z", "{ISO:Extended:Z}")
+      |> Timex.to_unix()
+    stop = Timex.parse!("#{to}-12-31T23:59:00.000Z", "{ISO:Extended:Z}")
       |> Timex.to_unix()
     respond(conn, id, start, stop)
   end
