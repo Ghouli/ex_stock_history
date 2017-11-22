@@ -5,6 +5,25 @@ defmodule ExStockHistoryWeb.StockHistory do
     for {key, val} <- map, into: %{}, do: {String.to_atom(key), val}
   end
 
+  def google_search(query) do
+    HTTPoison.get!("https://www.google.fi/search?q=#{URI.encode(query)}").body
+    |> Floki.find("h3[class='r']")
+    |> Floki.raw_html
+    |> String.replace("<h3 class=\"r\">", "")
+    |> String.replace("<a href=\"/url?q=", "")
+    |> String.trim_trailing("</a></h3>")
+    |> String.split("</a></h3>")
+    |> Enum.map(&(String.split(&1, "\">")))
+    |> Enum.reject(fn(x) -> Enum.count(x) != 2 end)
+    |> Enum.map(fn([url, title]) ->
+      %{url: url
+      |> String.split("&sa=U")
+      |> List.first(), title: Floki.text(title)} end)
+    |> Enum.reject(fn(x) -> String.starts_with?(x.url, "<a href=") end)
+#    |> Enum.map(fn(%{url: url, title: title}) ->
+#      %{url: url, title: validate_string(title)} end)
+  end
+
   def index(conn, _params) do
     send_resp(conn, :ok, "hello")
   end
@@ -19,6 +38,24 @@ defmodule ExStockHistoryWeb.StockHistory do
       |> String.split(",\"isPending")
       |> List.first()
       |> Poison.Parser.parse!()
+  end
+
+  def get_yahoo_pages(search_result) do
+    search_result
+    |> Enum.map(fn(%{title: title, url: url}) -> url end)
+    |> Enum.reject(fn(item) -> !String.starts_with?(item, "https://finance.yahoo.com/quote/") end)
+  end
+
+  def get_id(query) do
+    id =
+      "#{query} yahoo finance"
+      |> google_search()
+      |> get_yahoo_pages()
+      |> List.first()
+      |> String.trim_trailing("/")
+      |> String.split("/")
+      |> Enum.reverse()
+      |> List.first()
   end
 
   def respond(conn, id, start, stop) do
@@ -61,6 +98,17 @@ defmodule ExStockHistoryWeb.StockHistory do
       |> Timex.to_unix()
     stop = Timex.now()
       |> Timex.to_unix()
+    respond(conn, id, start, stop)
+  end
+
+  def fetch_stock_history(conn, %{"query" => query, "from" => from}) do
+    start = Timex.parse!("#{from}-01-01T00:00:00.000Z", "{ISO:Extended:Z}")
+      |> Timex.to_unix()
+    stop = Timex.now()
+      |> Timex.to_unix()
+
+    id = get_id(query)
+
     respond(conn, id, start, stop)
   end
 
