@@ -33,7 +33,9 @@ defmodule ExStockHistoryWeb.StockHistory do
       end)
       |> Enum.reverse()
       |> Poison.encode!()
-    send_resp(conn, :ok, json)
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(200, json)
   end
 
   def fetch_stock_history(conn, %{"id" => id, "start" => start, "stop" => stop}) do
