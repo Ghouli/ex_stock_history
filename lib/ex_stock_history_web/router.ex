@@ -22,7 +22,7 @@ defmodule ExStockHistoryWeb.Router do
   scope "/stocks", ExStockHistoryWeb do
     pipe_through :api
     get "/api/history", StockHistory, :fetch_stock_history
-    post "/api/history", StockHistory, :search_stock_history
+    post "/api/history", StockHistory, :fetch_stock_history
   end
 
   # Other scopes may use custom stacks.

@@ -171,6 +171,12 @@ defmodule ExStockHistoryWeb.StockHistory do
     respond(conn, id, start, stop)
   end
 
+  def fetch_stock_history(conn, _params) do
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(400, "{\"error\":\"invalid parameters\"}")
+  end
+
   def search_stock_history(conn, _params) do
   	send_resp(conn, :ok, "hi")
   end
