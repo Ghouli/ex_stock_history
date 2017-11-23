@@ -43,7 +43,7 @@ defmodule ExStockHistoryWeb.StockHistory do
             |> Enum.at(1)
             |> String.split(",\"isPending")
             |> List.first()
-            |> Poison.Parser.parse()
+            |> Poison.Parser.parse()          
           false -> {:error, nil}
         end
       {_error, _page} ->
@@ -58,27 +58,82 @@ defmodule ExStockHistoryWeb.StockHistory do
       !String.starts_with?(item, "https://finance.yahoo.com/quote/") end)
   end
 
+  def format_csv(data, query) do
+    csv =
+      data
+      |> Enum.map(fn(item) ->
+        "#{item.date},#{item.close},#{item.adjclose}"
+      end)
+    csv =
+      ["date,close,adjclose"] ++ csv
+      |> Enum.join("\n")
+    id = query["id"]
+    from =
+      query["start"]
+      |> Timex.from_unix()
+      |> Timex.to_date()
+    to =
+      query["stop"]
+      |> Timex.from_unix()
+      |> Timex.to_date()
+    filename = "#{id}_#{from}_#{to}.csv"
+    {filename, csv}
+  end
+
+  def format_data(data, query) do
+    data =
+      data
+      |> Enum.reject(fn(item) ->
+        Map.has_key?(item, "type")
+      end)
+      |> Enum.map(fn(item) -> 
+        item = keys_to_atom(item)
+        %{item | :date => Timex.to_date(Timex.from_unix(item.date))}
+      end)
+    data = case query["order"] == "asc" do
+      true  -> Enum.reverse(data)
+      false -> data
+    end
+    data =
+      case query["datatype"] == "csv" do
+        true  ->
+          {filename, csv} = format_csv(data, query)
+          %{
+            header:
+              %{
+                key: "content-disposition",
+                value: "attachment; filename=\"#{filename}\""
+              },
+            type: "text/csv",
+            data: csv
+          }
+        false ->
+          %{
+            header:
+              %{
+                key: "",
+                value: "",
+              },
+            type: "application/json",
+            data: Poison.encode!(data)
+          }
+      end
+    {:ok, data}
+  end
+
   def respond(conn, {:ok, query}) do
     response =
       case get_historical_data(query) do
-        {:ok, json} ->
-          json
-          |> Enum.reject(fn(item) ->
-            Map.has_key?(item, "type")
-          end)
-          |> Enum.map(fn(item) -> 
-            item = keys_to_atom(item)
-            %{item | :date => Timex.to_date(Timex.from_unix(item.date))}
-          end)
-          |> Enum.reverse()
-          |> Poison.encode()
+        {:ok, data} ->
+          format_data(data, query)
         {_error, _page} -> {:error, nil}
       end
     case response do
-      {:ok, json} ->
+      {:ok, data} ->
         conn
-        |> put_resp_content_type("application/json")
-        |> send_resp(200, json)
+        |> put_resp_header(data.header.key, data.header.value)
+        |> put_resp_content_type(data.type)
+        |> send_resp(200, data.data)
       {_error, _malformed} ->
         conn
         |> put_resp_content_type("application/json")
@@ -156,10 +211,21 @@ defmodule ExStockHistoryWeb.StockHistory do
               parameters["stop"]
             true -> get_stop()
           end,
+        "order" =>
+          case Map.has_key?(parameters, "order") &&
+            String.contains?(parameters["order"], "asc") do
+              true  -> "asc"
+              false -> "desc"
+            end,
+        "datatype" =>
+          cond do
+            Map.has_key?(parameters, "datatype") ->
+              parameters["datatype"]
+            true -> "json"
+          end,
       }
-    case query["id"] != nil
-      && query["start"] != nil
-      && query["stop"] != nil do
+    case query["id"] != nil && query["start"] != nil
+      && query["stop"] != nil && query["datatype"] != nil do
         true  -> {:ok, query}
         false -> {:error, "invalid or missing parameters"}
       end
