@@ -56,13 +56,40 @@ defmodule ExStockHistoryWeb.StockHistory do
       Path.wildcard("/home/ghouli/stock_data/#{id}-*.json")
     #IO.puts "filename: #{filename}"
     data =
-      filename
-      |> File.read!()
-      |> Poison.Parser.parse!()
-      |> Enum.reject(fn(item) ->
-          start < item["date"] && stop > item["date"]
-      end)
-    {:ok, data}
+      case File.exists?(filename) do
+        true ->
+          IO.puts "fetching local"
+          data =
+            filename
+            |> File.read!()
+            |> Poison.Parser.parse!()
+            |> Enum.reject(fn(item) ->
+                start < item["date"] && stop > item["date"]
+            end)
+          {:ok, data}
+        false ->
+          IO.puts "fetching from web"
+          url =
+            "https://finance.yahoo.com/quote/#{id}/history?period1=" <>
+            "#{start}&period2=#{stop}&interval=1d&filter=history&frequency=1d"
+          case HTTPoison.get(url) do
+            {:ok, page} -> 
+              case String.contains?(page.body, "isPending") do
+                true ->
+                  page.body
+                  |> Floki.find("script")
+                  |> Floki.raw_html()
+                  |> String.split("\"prices\":")
+                  |> Enum.at(1)
+                  |> String.split(",\"isPending")
+                  |> List.first()
+                  |> Poison.Parser.parse()
+                false -> {:error, nil}
+              end
+            {_error, _page} ->
+              {:error, nil}
+          end
+      end
   end
 
   def get_yahoo_pages(search_result) do
