@@ -1,6 +1,28 @@
 defmodule ExStockHistoryWeb.StockHistory do
   use ExStockHistoryWeb, :controller
 
+#  def init_cache do
+#    {:ok, _agent} = Agent.start_link(fn -> %{} end, name: :cache)
+#  end
+
+  def cache_put({id, start, stop}, value) do
+    "#{id}#{start}#{stop}"
+    |> Base.encode64()
+    |> String.slice(0..15)
+    |> cache_put(value)
+  end
+  def cache_put(key, value) do
+    Cachex.set(:cache, key, value)
+  end
+
+  def cache_get({id, start, stop}) do
+    "#{id}#{start}#{stop}"
+    |> Base.encode64()
+    |> String.slice(0..15)
+    |> cache_get()
+  end
+  def cache_get(key), do: Cachex.get!(:cache, key)
+
   def keys_to_atom(map) do
     for {key, val} <- map, into: %{}, do: {String.to_atom(key), val}
   end
@@ -20,62 +42,30 @@ defmodule ExStockHistoryWeb.StockHistory do
       |> String.split("&sa=U")
       |> List.first(), title: Floki.text(title)} end)
     |> Enum.reject(fn(x) -> String.starts_with?(x.url, "<a href=") end)
-#    |> Enum.map(fn(%{url: url, title: title}) ->
-#      %{url: url, title: validate_string(title)} end)
   end
 
   def index(conn, _params) do
     send_resp(conn, :ok, "hello")
   end
 
-#  def get_historical_data(%{"id" => id, "start" => start, "stop" => stop}) do
-#    url =
-#      "https://finance.yahoo.com/quote/#{id}/history?period1=" <>
-#      "#{start}&period2=#{stop}&interval=1d&filter=history&frequency=1d"
-#    case HTTPoison.get(url) do
-#      {:ok, page} -> 
-#        case String.contains?(page.body, "isPending") do
-#          true ->
-#            page.body
-#            |> Floki.find("script")
-#            |> Floki.raw_html()
-#            |> String.split("\"prices\":")
-#            |> Enum.at(1)
-#            |> String.split(",\"isPending")
-#            |> List.first()
-#            |> Poison.Parser.parse()
-#          false -> {:error, nil}
-#        end
-#      {_error, _page} ->
-#        {:error, nil}
-#    end
-#  end
-
   def get_historical_data(%{"id" => id, "start" => start, "stop" => stop}) do
     filename =
       Path.wildcard("/home/ghouli/stock_data/#{id}-*.json")
-    #IO.puts "filename: #{filename}"
-    data =
-      case File.exists?(filename) do
-        true ->
-          IO.puts "fetching local"
-          data =
-            filename
-            |> File.read!()
-            |> Poison.Parser.parse!()
-            |> Enum.reject(fn(item) ->
-                start < item["date"] && stop > item["date"]
-            end)
-          {:ok, data}
-        false ->
-          IO.puts "fetching from web"
-          url =
-            "https://finance.yahoo.com/quote/#{id}/history?period1=" <>
-            "#{start}&period2=#{stop}&interval=1d&filter=history&frequency=1d"
-          case HTTPoison.get(url) do
-            {:ok, page} -> 
-              case String.contains?(page.body, "isPending") do
-                true ->
+    data = cache_get({id, start, stop})
+    cond do
+      data != nil ->
+        IO.puts "fetching from cache"
+        {:ok, data}
+      true ->
+        IO.puts "fetching from web"
+        url =
+          "https://finance.yahoo.com/quote/#{id}/history?period1=" <>
+          "#{start}&period2=#{stop}&interval=1d&filter=history&frequency=1d"
+        case HTTPoison.get(url) do
+          {:ok, page} -> 
+            case String.contains?(page.body, "isPending") do
+              true ->
+                result =
                   page.body
                   |> Floki.find("script")
                   |> Floki.raw_html()
@@ -84,12 +74,18 @@ defmodule ExStockHistoryWeb.StockHistory do
                   |> String.split(",\"isPending")
                   |> List.first()
                   |> Poison.Parser.parse()
-                false -> {:error, nil}
-              end
-            {_error, _page} ->
-              {:error, nil}
-          end
-      end
+                  case result do
+                    {:ok, data} -> 
+                      cache_put({id, start, stop}, data)
+                      result
+                    true -> result
+                  end
+              false -> {:error, nil}
+            end
+          {_error, _page} ->
+            {:error, nil}
+        end
+    end
   end
 
   def get_yahoo_pages(search_result) do

@@ -19,7 +19,7 @@ defmodule ExStockHistory.Mixfile do
   def application do
     [
       mod: {ExStockHistory.Application, []},
-      extra_applications: [:logger, :runtime_tools]
+      extra_applications: [:logger, :runtime_tools, :cachex]
     ]
   end
 
@@ -38,6 +38,7 @@ defmodule ExStockHistory.Mixfile do
       {:phoenix_live_reload, "~> 1.0", only: :dev},
       {:gettext, "~> 0.11"},
       {:cowboy, "~> 1.0"},
+      {:cachex, "~> 2.1"},
       {:floki, "~> 0.18.1"},
       {:httpoison, "~> 0.13.0"},
       {:timex, "~> 3.1"},

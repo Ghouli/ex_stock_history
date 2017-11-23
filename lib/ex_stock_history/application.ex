@@ -5,15 +5,18 @@ defmodule ExStockHistory.Application do
   # for more information on OTP Applications
   def start(_type, _args) do
     import Supervisor.Spec
-
+    limit = %Cachex.Limit{ limit: 100, reclaim: 0.2 }
     # Define workers and child supervisors to be supervised
     children = [
       # Start the endpoint when the application starts
       supervisor(ExStockHistoryWeb.Endpoint, []),
+#      supervisor(ConCache, [[], [name: :cache]])
+      
+      worker(Cachex, [:cache,  [limit: limit]])
       # Start your own worker by calling: ExStockHistory.Worker.start_link(arg1, arg2, arg3)
       # worker(ExStockHistory.Worker, [arg1, arg2, arg3]),
     ]
-
+    IO.inspect children
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: ExStockHistory.Supervisor]
