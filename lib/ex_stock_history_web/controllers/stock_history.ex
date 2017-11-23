@@ -28,27 +28,41 @@ defmodule ExStockHistoryWeb.StockHistory do
     send_resp(conn, :ok, "hello")
   end
 
+#  def get_historical_data(%{"id" => id, "start" => start, "stop" => stop}) do
+#    url =
+#      "https://finance.yahoo.com/quote/#{id}/history?period1=" <>
+#      "#{start}&period2=#{stop}&interval=1d&filter=history&frequency=1d"
+#    case HTTPoison.get(url) do
+#      {:ok, page} -> 
+#        case String.contains?(page.body, "isPending") do
+#          true ->
+#            page.body
+#            |> Floki.find("script")
+#            |> Floki.raw_html()
+#            |> String.split("\"prices\":")
+#            |> Enum.at(1)
+#            |> String.split(",\"isPending")
+#            |> List.first()
+#            |> Poison.Parser.parse()
+#          false -> {:error, nil}
+#        end
+#      {_error, _page} ->
+#        {:error, nil}
+#    end
+#  end
+
   def get_historical_data(%{"id" => id, "start" => start, "stop" => stop}) do
-    url =
-      "https://finance.yahoo.com/quote/#{id}/history?period1=" <>
-      "#{start}&period2=#{stop}&interval=1d&filter=history&frequency=1d"
-    case HTTPoison.get(url) do
-      {:ok, page} -> 
-        case String.contains?(page.body, "isPending") do
-          true ->
-            page.body
-            |> Floki.find("script")
-            |> Floki.raw_html()
-            |> String.split("\"prices\":")
-            |> Enum.at(1)
-            |> String.split(",\"isPending")
-            |> List.first()
-            |> Poison.Parser.parse()          
-          false -> {:error, nil}
-        end
-      {_error, _page} ->
-        {:error, nil}
-    end
+    filename =
+      Path.wildcard("/home/ghouli/stock_data/#{id}-*.json")
+    #IO.puts "filename: #{filename}"
+    data =
+      filename
+      |> File.read!()
+      |> Poison.Parser.parse!()
+      |> Enum.reject(fn(item) ->
+          start < item["date"] && stop > item["date"]
+      end)
+    {:ok, data}
   end
 
   def get_yahoo_pages(search_result) do
@@ -235,12 +249,6 @@ defmodule ExStockHistoryWeb.StockHistory do
     IO.inspect parameters
     query = build_query(parameters)
     respond(conn, query)
-  end
-
-  def fetch_stock_history(conn, _params) do
-    conn
-    |> put_resp_content_type("application/json")
-    |> send_resp(400, "{\"error\":\"invalid parameters\"}")
   end
 
   def fetch_stock_history(conn) do
