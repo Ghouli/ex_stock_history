@@ -28,7 +28,7 @@ defmodule ExStockHistoryWeb.StockHistory do
     send_resp(conn, :ok, "hello")
   end
 
-  def get_historical_data(id, start, stop) do
+  def get_historical_data(%{"id" => id, "start" => start, "stop" => stop}) do
     url =
       "https://finance.yahoo.com/quote/#{id}/history?period1=" <>
       "#{start}&period2=#{stop}&interval=1d&filter=history&frequency=1d"
@@ -58,27 +58,9 @@ defmodule ExStockHistoryWeb.StockHistory do
       !String.starts_with?(item, "https://finance.yahoo.com/quote/") end)
   end
 
-  def get_id(query) do
-    id =
-      "#{query} yahoo finance"
-      |> google_search()
-      |> get_yahoo_pages()
-
-    case Enum.empty?(id) do
-      true  -> nil
-      false -> 
-        id
-        |> List.first()
-        |> String.trim_trailing("/")
-        |> String.split("/")
-        |> Enum.reverse()
-        |> List.first()
-    end
-  end
-
-  def respond(conn, id, start, stop) do
+  def respond(conn, {:ok, query}) do
     response =
-      case get_historical_data(id, start, stop) do
+      case get_historical_data(query) do
         {:ok, json} ->
           json
           |> Enum.reject(fn(item) ->
@@ -104,94 +86,101 @@ defmodule ExStockHistoryWeb.StockHistory do
     end
   end
 
-  def fetch_stock_history(conn, %{"id" => id, "start" => start, "stop" => stop}) do
-    respond(conn, id, start, stop)
+  def respond(conn, {:error, message}) do
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(400, "{\"error\":\"#{message}\"}")
   end
 
-  def fetch_stock_history(conn, %{"id" => id, "start" => start}) do
-    stop = Timex.now() |> Timex.to_unix
-    respond(conn, id, start, stop)
+  def get_id(query) do
+    id =
+      "#{query} yahoo finance"
+      |> google_search()
+      |> get_yahoo_pages()
+
+    case Enum.empty?(id) do
+      true  -> nil
+      false -> 
+        id
+        |> List.first()
+        |> String.trim_trailing("/")
+        |> String.split("/")
+        |> Enum.reverse()
+        |> List.first()
+    end
   end
 
-  def fetch_stock_history(conn, %{"id" => id, "year" => year}) do
-    start = Timex.parse!("#{year}-01-01T00:00:00.000Z", "{ISO:Extended:Z}")
-      |> Timex.to_unix()
-    stop = Timex.parse!("#{year}-01-01T00:00:00.000Z", "{ISO:Extended:Z}")
-      |> Timex.shift(years: 1)
-      |> Timex.to_unix()
-    respond(conn, id, start, stop)
+  def get_start(), do: Timex.now() |> Timex.shift(years: -2) |> Timex.to_unix()
+  def get_start(from) do
+    "#{from}-01-01T00:00:00.000Z"
+    |> Timex.parse!("{ISO:Extended:Z}")
+    |> Timex.to_unix()
   end
 
-  def fetch_stock_history(conn, %{"id" => id, "from" => from, "to" => to}) do
-    start = Timex.parse!("#{from}-01-01T00:00:00.000Z", "{ISO:Extended:Z}")
-      |> Timex.to_unix()
-    stop = Timex.parse!("#{to}-12-31T23:59:00.000Z", "{ISO:Extended:Z}")
-      |> Timex.to_unix()
-    respond(conn, id, start, stop)
+  def get_stop(), do: Timex.now() |> Timex.to_unix()
+  def get_stop(to) do
+    "#{to}-12-31T23:59:00.000Z"
+    |> Timex.parse!("{ISO:Extended:Z}")
+    |> Timex.to_unix()
   end
 
-  def fetch_stock_history(conn, %{"id" => id, "from" => from}) do
-    start = Timex.parse!("#{from}-01-01T00:00:00.000Z", "{ISO:Extended:Z}")
-      |> Timex.to_unix()
-    stop = Timex.to_unix(Timex.now())
-    respond(conn, id, start, stop)
+  def build_query(parameters) do
+    query =
+      %{
+        "id" =>
+          case Map.has_key?(parameters, "id") do
+            true  -> parameters["id"]
+            false ->
+              case Map.has_key?(parameters, "query") do
+                true  -> get_id(parameters["query"])
+                false -> nil
+              end
+          end,
+        "start" =>
+          cond do
+            Map.has_key?(parameters, "year") ->
+              get_start(parameters["year"])
+            Map.has_key?(parameters, "from") ->
+              get_start(parameters["from"])
+            Map.has_key?(parameters, "start") ->
+              parameters["start"]
+            true -> get_start()
+          end,
+        "stop" =>
+          cond do
+            Map.has_key?(parameters, "year") ->
+              get_stop(parameters["year"])
+            Map.has_key?(parameters, "to") ->
+              get_stop(parameters["to"])
+            Map.has_key?(parameters, "stop") ->
+              parameters["stop"]
+            true -> get_stop()
+          end,
+      }
+    case query["id"] != nil
+      && query["start"] != nil
+      && query["stop"] != nil do
+        true  -> {:ok, query}
+        false -> {:error, "invalid or missing parameters"}
+      end
   end
 
-  def fetch_stock_history(conn, %{"id" => id}) do
-    start = Timex.now() |> Timex.shift(years: -2) |> Timex.to_unix()
-    stop = Timex.now() |> Timex.to_unix()
-    respond(conn, id, start, stop)
-  end
-
-  def fetch_stock_history(conn, %{"query" => query, "start" => start, "stop" => stop}) do
-    id = get_id(query)
-    respond(conn, id, start, stop)
-  end
-
-  def fetch_stock_history(conn, %{"query" => query, "start" => start}) do
-    id = get_id(query)
-    stop = Timex.now() |> Timex.to_unix()
-    respond(conn, id, start, stop)
-  end
-
-  def fetch_stock_history(conn, %{"query" => query, "year" => year}) do
-    id = get_id(query)
-    start = Timex.parse!("#{year}-01-01T00:00:00.000Z", "{ISO:Extended:Z}")
-      |> Timex.to_unix()
-    stop = Timex.parse!("#{year}-01-01T00:00:00.000Z", "{ISO:Extended:Z}")
-      |> Timex.shift(years: 1)
-      |> Timex.to_unix()
-    respond(conn, id, start, stop)
-  end
-
-  def fetch_stock_history(conn, %{"query" => query, "from" => from, "to" => to}) do
-    id = get_id(query)
-    start = Timex.parse!("#{from}-01-01T00:00:00.000Z", "{ISO:Extended:Z}")
-      |> Timex.to_unix()
-    stop = Timex.parse!("#{to}-12-31T23:59:00.000Z", "{ISO:Extended:Z}")
-      |> Timex.to_unix()
-    respond(conn, id, start, stop)
-  end
-
-  def fetch_stock_history(conn, %{"query" => query, "from" => from}) do
-    id = get_id(query)
-    start = Timex.parse!("#{from}-01-01T00:00:00.000Z", "{ISO:Extended:Z}")
-      |> Timex.to_unix()
-    stop = Timex.to_unix(Timex.now())
-    respond(conn, id, start, stop)
-  end
-
-  def fetch_stock_history(conn, %{"query" => query}) do
-    id = get_id(query)
-    start = Timex.now() |> Timex.shift(years: -2) |> Timex.to_unix()
-    stop = Timex.now() |> Timex.to_unix()
-    respond(conn, id, start, stop)
+  def fetch_stock_history(conn, parameters) do
+    IO.inspect parameters
+    query = build_query(parameters)
+    respond(conn, query)
   end
 
   def fetch_stock_history(conn, _params) do
     conn
     |> put_resp_content_type("application/json")
     |> send_resp(400, "{\"error\":\"invalid parameters\"}")
+  end
+
+  def fetch_stock_history(conn) do
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(400, "{\"error\":\"missing parameters\"}")
   end
 
   def search_stock_history(conn, _params) do
